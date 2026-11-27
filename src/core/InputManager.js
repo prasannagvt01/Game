@@ -10,10 +10,11 @@ export class InputManager {
       lookBack: false
     };
 
-    // Analog steering (-1 left to +1 right) for mobile touch wheel or smooth keyboard interpolation
+    // Analog steering (-1 right to +1 left in right-handed Three.js coordinates)
     this.touchSteerAngle = 0;
     this.isTouchSteering = false;
-    this.touchWheelStartX = 0;
+    this.steerTouchId = null;
+    this.mobileBound = false;
 
     this.callbacks = {
       onCameraToggle: null,
@@ -123,33 +124,86 @@ export class InputManager {
   }
 
   _bindMobileTouch() {
-    window.addEventListener('DOMContentLoaded', () => {
+    if (typeof document === 'undefined') return;
+    if (document.readyState === 'loading') {
+      window.addEventListener('DOMContentLoaded', () => this.setupMobileDOMBindings(), { once: true });
+    } else {
       this.setupMobileDOMBindings();
-    });
+    }
   }
 
   setupMobileDOMBindings() {
+    if (this.mobileBound || typeof document === 'undefined') return;
+    this.mobileBound = true;
+
+    // Detect touch-capable devices even if mobile browser requests "Desktop site"
+    const hasTouch =
+      typeof window !== 'undefined' &&
+      ('ontouchstart' in window || (navigator?.maxTouchPoints || 0) > 0);
+    if (hasTouch && document.body) {
+      document.body.classList.add('is-touch-device');
+    }
+
     const bindHoldButton = (id, keyName) => {
       const el = document.getElementById(id);
       if (!el) return;
 
-      const start = (e) => {
-        e.preventDefault();
-        this.keys[keyName] = true;
-        el.classList.add('active');
-      };
-      const end = (e) => {
-        e.preventDefault();
-        this.keys[keyName] = false;
-        el.classList.remove('active');
+      const activeTouches = new Set();
+      let mouseHeld = false;
+
+      const syncState = () => {
+        const isPressed = activeTouches.size > 0 || mouseHeld;
+        this.keys[keyName] = isPressed;
+        el.classList.toggle('active', isPressed);
       };
 
-      el.addEventListener('touchstart', start, { passive: false });
-      el.addEventListener('touchend', end, { passive: false });
-      el.addEventListener('touchcancel', end, { passive: false });
-      el.addEventListener('pointerdown', start);
-      el.addEventListener('pointerup', end);
-      el.addEventListener('pointerleave', end);
+      el.addEventListener('touchstart', (e) => {
+        if (e.cancelable) e.preventDefault();
+        if (e.changedTouches) {
+          for (let i = 0; i < e.changedTouches.length; i++) {
+            activeTouches.add(e.changedTouches[i].identifier);
+          }
+        } else {
+          activeTouches.add('default');
+        }
+        syncState();
+      }, { passive: false });
+
+      const releaseTouches = (e) => {
+        if (e.cancelable) e.preventDefault();
+        if (e.changedTouches) {
+          for (let i = 0; i < e.changedTouches.length; i++) {
+            activeTouches.delete(e.changedTouches[i].identifier);
+          }
+        } else {
+          activeTouches.clear();
+        }
+        syncState();
+      };
+
+      el.addEventListener('touchend', releaseTouches, { passive: false });
+      el.addEventListener('touchcancel', releaseTouches, { passive: false });
+
+      // Support mouse click-and-hold when testing touch UI on desktop
+      el.addEventListener('pointerdown', (e) => {
+        if (e.pointerType === 'touch') return;
+        e.preventDefault();
+        mouseHeld = true;
+        if (el.setPointerCapture && e.pointerId !== undefined) {
+          try { el.setPointerCapture(e.pointerId); } catch { /* ignore */ }
+        }
+        syncState();
+      });
+
+      const releaseMouse = (e) => {
+        if (e.pointerType === 'touch') return;
+        mouseHeld = false;
+        syncState();
+      };
+
+      el.addEventListener('pointerup', releaseMouse);
+      el.addEventListener('pointercancel', releaseMouse);
+      el.addEventListener('lostpointercapture', releaseMouse);
     };
 
     bindHoldButton('btn-touch-accel', 'forward');
@@ -159,16 +213,16 @@ export class InputManager {
     bindHoldButton('btn-touch-left', 'left');
     bindHoldButton('btn-touch-right', 'right');
 
-    // Interactive touch steering wheel pad
+    // Multi-touch independent steering wheel pad (works simultaneously while right thumb holds ACCEL)
     const wheelZone = document.getElementById('touch-steer-wheel');
     const wheelGraphic = document.getElementById('touch-wheel-graphic');
     if (wheelZone) {
       const handleSteerMove = (clientX) => {
         const rect = wheelZone.getBoundingClientRect();
-        const centerX = rect.left + rect.width * 0.5;
-        const maxOffset = rect.width * 0.45;
+        const width = rect.width || 120;
+        const centerX = rect.left + width * 0.5;
+        const maxOffset = width * 0.45;
         const delta = Math.max(-1, Math.min(1, (clientX - centerX) / maxOffset));
-        // Deadzone
         this.touchSteerAngle = Math.abs(delta) < 0.06 ? 0 : -delta;
         if (wheelGraphic) {
           wheelGraphic.style.transform = `rotate(${delta * 65}deg)`;
@@ -176,17 +230,20 @@ export class InputManager {
       };
 
       wheelZone.addEventListener('touchstart', (e) => {
-        e.preventDefault();
+        if (e.cancelable) e.preventDefault();
+        const touch = e.changedTouches ? e.changedTouches[0] : (e.touches ? e.touches[0] : null);
+        if (!touch) return;
+        this.steerTouchId = touch.identifier;
         this.isTouchSteering = true;
-        if (e.touches.length > 0) handleSteerMove(e.touches[0].clientX);
+        handleSteerMove(touch.clientX);
       }, { passive: false });
 
       wheelZone.addEventListener('touchmove', (e) => {
-        e.preventDefault();
-        if (!this.isTouchSteering) return;
+        if (e.cancelable) e.preventDefault();
+        if (!this.isTouchSteering || !e.touches) return;
         for (let i = 0; i < e.touches.length; i++) {
           const t = e.touches[i];
-          if (t.clientX < window.innerWidth * 0.5) {
+          if (t.identifier === this.steerTouchId) {
             handleSteerMove(t.clientX);
             break;
           }
@@ -194,7 +251,18 @@ export class InputManager {
       }, { passive: false });
 
       const stopSteer = (e) => {
-        e.preventDefault();
+        if (e.cancelable) e.preventDefault();
+        if (e.changedTouches && this.steerTouchId !== null) {
+          let released = false;
+          for (let i = 0; i < e.changedTouches.length; i++) {
+            if (e.changedTouches[i].identifier === this.steerTouchId) {
+              released = true;
+              break;
+            }
+          }
+          if (!released) return;
+        }
+        this.steerTouchId = null;
         this.isTouchSteering = false;
         this.touchSteerAngle = 0;
         if (wheelGraphic) {
@@ -204,31 +272,55 @@ export class InputManager {
 
       wheelZone.addEventListener('touchend', stopSteer, { passive: false });
       wheelZone.addEventListener('touchcancel', stopSteer, { passive: false });
+
+      // Mouse drag fallback on desktop when On-Screen Touch Controls = Always Show
+      let wheelMouseDown = false;
+      wheelZone.addEventListener('pointerdown', (e) => {
+        if (e.pointerType === 'touch') return;
+        e.preventDefault();
+        wheelMouseDown = true;
+        this.isTouchSteering = true;
+        if (wheelZone.setPointerCapture && e.pointerId !== undefined) {
+          try { wheelZone.setPointerCapture(e.pointerId); } catch { /* ignore */ }
+        }
+        handleSteerMove(e.clientX);
+      });
+      wheelZone.addEventListener('pointermove', (e) => {
+        if (!wheelMouseDown || e.pointerType === 'touch') return;
+        handleSteerMove(e.clientX);
+      });
+      const endWheelMouse = (e) => {
+        if (!wheelMouseDown || e.pointerType === 'touch') return;
+        wheelMouseDown = false;
+        this.isTouchSteering = false;
+        this.touchSteerAngle = 0;
+        if (wheelGraphic) wheelGraphic.style.transform = 'rotate(0deg)';
+      };
+      wheelZone.addEventListener('pointerup', endWheelMouse);
+      wheelZone.addEventListener('pointercancel', endWheelMouse);
     }
 
-    const camBtn = document.getElementById('btn-touch-camera');
-    if (camBtn) {
-      camBtn.addEventListener('click', (e) => {
+    const bindTapButton = (id, getCb) => {
+      const btn = document.getElementById(id);
+      if (!btn) return;
+      let lastTouchTs = 0;
+      btn.addEventListener('touchstart', (e) => {
+        if (e.cancelable) e.preventDefault();
+        lastTouchTs = Date.now();
+        const cb = getCb();
+        if (cb) cb();
+      }, { passive: false });
+      btn.addEventListener('click', (e) => {
+        if (Date.now() - lastTouchTs < 450) return;
         e.preventDefault();
-        if (this.callbacks.onCameraToggle) this.callbacks.onCameraToggle();
+        const cb = getCb();
+        if (cb) cb();
       });
-    }
+    };
 
-    const resetBtn = document.getElementById('btn-touch-reset');
-    if (resetBtn) {
-      resetBtn.addEventListener('click', (e) => {
-        e.preventDefault();
-        if (this.callbacks.onResetCar) this.callbacks.onResetCar();
-      });
-    }
-
-    const pauseBtn = document.getElementById('btn-touch-pause');
-    if (pauseBtn) {
-      pauseBtn.addEventListener('click', (e) => {
-        e.preventDefault();
-        if (this.callbacks.onPauseToggle) this.callbacks.onPauseToggle();
-      });
-    }
+    bindTapButton('btn-touch-camera', () => this.callbacks.onCameraToggle);
+    bindTapButton('btn-touch-reset', () => this.callbacks.onResetCar);
+    bindTapButton('btn-touch-pause', () => this.callbacks.onPauseToggle);
   }
 
   getThrottle() {
@@ -258,5 +350,6 @@ export class InputManager {
     }
     this.touchSteerAngle = 0;
     this.isTouchSteering = false;
+    this.steerTouchId = null;
   }
 }
