@@ -28,6 +28,7 @@ export class UIManager {
 
     this.screens = {
       mainMenu: document.getElementById('screen-main-menu'),
+      multiplayer: document.getElementById('screen-multiplayer'),
       missions: document.getElementById('screen-missions'),
       garage: document.getElementById('screen-garage'),
       settings: document.getElementById('modal-settings'),
@@ -47,6 +48,7 @@ export class UIManager {
     };
 
     this._initMainMenu();
+    this._initMultiplayerScreen();
     this._initMissionsScreen();
     this._initGarage();
     this._initSettings();
@@ -56,31 +58,37 @@ export class UIManager {
   }
 
   showScreen(name) {
-    if (name === 'mainMenu') {
-      this.screens.mainMenu.classList.remove('hidden');
+    const hideAllMain = () => {
+      this.screens.mainMenu?.classList.add('hidden');
+      this.screens.multiplayer?.classList.add('hidden');
       this.screens.missions?.classList.add('hidden');
-      this.screens.garage.classList.add('hidden');
-      this.screens.hud.classList.add('hidden');
+      this.screens.garage?.classList.add('hidden');
+      this.screens.hud?.classList.add('hidden');
+    };
+
+    if (name === 'mainMenu') {
+      hideAllMain();
+      this.screens.mainMenu.classList.remove('hidden');
       this.screens.pause.classList.add('hidden');
       this.screens.results.classList.add('hidden');
       this.refreshMainMenu();
+    } else if (name === 'multiplayer') {
+      hideAllMain();
+      this.screens.multiplayer?.classList.remove('hidden');
+      this.screens.pause.classList.add('hidden');
+      this.screens.results.classList.add('hidden');
+      this.renderMultiplayerLobby();
     } else if (name === 'missions') {
-      this.screens.mainMenu.classList.add('hidden');
+      hideAllMain();
       this.screens.missions?.classList.remove('hidden');
-      this.screens.garage.classList.add('hidden');
-      this.screens.hud.classList.add('hidden');
       this.renderMissionsUI();
     } else if (name === 'garage') {
-      this.screens.mainMenu.classList.add('hidden');
-      this.screens.missions?.classList.add('hidden');
+      hideAllMain();
       this.screens.garage.classList.remove('hidden');
-      this.screens.hud.classList.add('hidden');
       this.garagePreviewCarId = this.save.getSelectedCarId();
       this.renderGarageUI();
     } else if (name === 'hud') {
-      this.screens.mainMenu.classList.add('hidden');
-      this.screens.missions?.classList.add('hidden');
-      this.screens.garage.classList.add('hidden');
+      hideAllMain();
       this.screens.hud.classList.remove('hidden');
       this.screens.pause.classList.add('hidden');
       this.screens.results.classList.add('hidden');
@@ -153,6 +161,10 @@ export class UIManager {
       this.engine.startRaceMode(this.selectedModeId);
     });
 
+    document.getElementById('btn-menu-multiplayer')?.addEventListener('click', () => {
+      this.engine.enterMultiplayerLobby();
+    });
+
     document.getElementById('btn-menu-missions')?.addEventListener('click', () => {
       this.engine.enterMissionsScreen();
     });
@@ -190,6 +202,247 @@ export class UIManager {
     const badge = document.getElementById('menu-current-car-name');
     if (badge) badge.textContent = `${activeCar.name} [${eff.piClass} ${eff.piRating}]`;
     this.refreshCreditsDisplay();
+  }
+
+  _initMultiplayerScreen() {
+    const mp = this.engine.multiplayerManager;
+    if (!mp) return;
+
+    const nameInput = document.getElementById('mp-player-name');
+    const serverInput = document.getElementById('mp-server-url');
+    const codeInput = document.getElementById('mp-join-code');
+    const lapsSelect = document.getElementById('mp-laps-select');
+
+    if (nameInput) {
+      const savedName = mp.getSavedPlayerName();
+      if (savedName) nameInput.value = savedName;
+      nameInput.addEventListener('change', () => {
+        const clean = mp.setSavedPlayerName(nameInput.value);
+        nameInput.value = clean;
+        mp.syncProfile(clean);
+      });
+    }
+
+    if (serverInput) {
+      serverInput.value = mp.getCustomServerUrl();
+      serverInput.addEventListener('change', () => {
+        mp.setCustomServerUrl(serverInput.value);
+      });
+    }
+
+    if (codeInput) {
+      codeInput.addEventListener('input', () => {
+        codeInput.value = codeInput.value.replace(/\D/g, '').slice(0, 4);
+        this.hideMultiplayerError();
+      });
+      codeInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          document.getElementById('btn-mp-join')?.click();
+        }
+      });
+    }
+
+    if (lapsSelect) {
+      lapsSelect.addEventListener('change', () => {
+        if (mp.isHost) {
+          mp.syncProfile(nameInput?.value || null, Number(lapsSelect.value));
+        }
+      });
+    }
+
+    document.getElementById('btn-mp-back')?.addEventListener('click', () => {
+      if (mp.isInRoom()) {
+        mp.leaveRoom(true);
+      }
+      this.returnFromGarageToMultiplayer = false;
+      this.engine.returnToMainMenu();
+    });
+
+    document.getElementById('btn-mp-change-car')?.addEventListener('click', () => {
+      this.returnFromGarageToMultiplayer = true;
+      this.engine.enterGarage();
+    });
+
+    document.getElementById('btn-mp-create')?.addEventListener('click', () => {
+      this.hideMultiplayerError();
+      mp.createRoom(nameInput?.value || 'Player 1', serverInput?.value ?? null);
+    });
+
+    document.getElementById('btn-mp-join')?.addEventListener('click', () => {
+      this.hideMultiplayerError();
+      const entered = codeInput ? codeInput.value.trim() : '';
+      mp.joinRoom(entered, nameInput?.value || 'Player 2', serverInput?.value ?? null);
+    });
+
+    document.getElementById('btn-mp-copy-code')?.addEventListener('click', async () => {
+      if (!mp.roomCode) return;
+      const copyBtn = document.getElementById('btn-mp-copy-code');
+      try {
+        if (navigator.clipboard?.writeText) {
+          await navigator.clipboard.writeText(mp.roomCode);
+        }
+      } catch { /* fallback still shows visual confirmation */ }
+      if (copyBtn) {
+        copyBtn.textContent = '✓ COPIED!';
+        setTimeout(() => {
+          if (copyBtn) copyBtn.textContent = '📋 COPY CODE';
+        }, 1800);
+      }
+    });
+
+    document.getElementById('btn-mp-start-race')?.addEventListener('click', () => {
+      const laps = Number(lapsSelect?.value || 2);
+      mp.requestStartRace(laps);
+    });
+
+    document.getElementById('btn-mp-leave-room')?.addEventListener('click', () => {
+      this.hideMultiplayerError();
+      mp.leaveRoom(true);
+      this.renderMultiplayerLobby();
+    });
+
+    mp.onRoomUpdate = () => {
+      this.hideMultiplayerError();
+      this.renderMultiplayerLobby();
+    };
+
+    mp.onError = (_code, message) => {
+      this.showMultiplayerError(message);
+      this.renderMultiplayerLobby();
+    };
+
+    mp.onConnectionChange = () => {
+      this.renderMultiplayerLobby();
+    };
+  }
+
+  showMultiplayerError(message) {
+    const errEl = document.getElementById('mp-error-banner');
+    if (!errEl) return;
+    errEl.textContent = message;
+    errEl.classList.remove('hidden');
+  }
+
+  hideMultiplayerError() {
+    document.getElementById('mp-error-banner')?.classList.add('hidden');
+  }
+
+  renderMultiplayerLobby() {
+    const mp = this.engine.multiplayerManager;
+    if (!mp) return;
+
+    const activeCar = getCarById(this.save.getSelectedCarId());
+    const carBadge = document.getElementById('mp-active-car-name');
+    if (carBadge) carBadge.textContent = activeCar.name;
+
+    const connBadge = document.getElementById('mp-conn-status');
+    if (connBadge) {
+      const stateMap = {
+        disconnected: '● READY',
+        connecting: '◌ CONNECTING...',
+        connected: '● ONLINE',
+        reconnecting: '◌ RECONNECTING...'
+      };
+      connBadge.textContent = stateMap[mp.connectionState] || '● READY';
+      connBadge.className = `pill-value mp-conn-badge ${mp.connectionState}`;
+    }
+
+    const entryView = document.getElementById('mp-entry-view');
+    const roomView = document.getElementById('mp-room-view');
+    const inRoom = mp.isInRoom();
+
+    entryView?.classList.toggle('hidden', inRoom);
+    roomView?.classList.toggle('hidden', !inRoom);
+
+    if (!inRoom || !mp.room) return;
+
+    const room = mp.room;
+    const codeVal = document.getElementById('mp-room-code-val');
+    if (codeVal) codeVal.textContent = room.code;
+
+    const lapsSelect = document.getElementById('mp-laps-select');
+    if (lapsSelect) {
+      lapsSelect.value = String(room.laps || 2);
+      lapsSelect.disabled = !mp.isHost;
+    }
+
+    const p1 = room.players.find((p) => p.slot === 1) || room.players[0] || null;
+    const p2 = room.players.find((p) => p.slot === 2) || (room.players.length > 1 ? room.players[1] : null);
+
+    const fillSlot = (slotNum, playerObj) => {
+      const card = document.getElementById(`mp-slot-${slotNum}`);
+      const roleEl = document.getElementById(`mp-p${slotNum}-role`);
+      const nameEl = document.getElementById(`mp-p${slotNum}-name`);
+      const swatchEl = document.getElementById(`mp-p${slotNum}-swatch`);
+      const carEl = document.getElementById(`mp-p${slotNum}-car`);
+      const statusEl = document.getElementById(`mp-p${slotNum}-status`);
+
+      if (!playerObj) {
+        card?.classList.add('waiting');
+        if (roleEl) {
+          roleEl.textContent = 'OPEN SLOT';
+          roleEl.className = 'mp-role-pill';
+        }
+        if (nameEl) nameEl.textContent = 'Waiting for friend...';
+        if (swatchEl) swatchEl.style.backgroundColor = 'transparent';
+        if (carEl) carEl.textContent = `Share code ${room.code} to invite`;
+        if (statusEl) {
+          statusEl.textContent = '○ Waiting (1 / 2 Players)';
+          statusEl.className = 'mp-slot-status';
+        }
+        return;
+      }
+
+      card?.classList.remove('waiting');
+      const isMe = playerObj.id === mp.playerId;
+      const cDef = getCarById(playerObj.carId);
+      if (roleEl) {
+        roleEl.textContent = playerObj.isHost ? 'HOST' : 'PLAYER 2';
+        roleEl.className = `mp-role-pill ${playerObj.isHost ? 'host' : 'guest'}`;
+      }
+      if (nameEl) nameEl.textContent = `${playerObj.name}${isMe ? ' (You)' : ''}`;
+      if (swatchEl) swatchEl.style.backgroundColor = playerObj.color || cDef.defaultColor;
+      if (carEl) carEl.textContent = cDef.name;
+      if (statusEl) {
+        statusEl.textContent = playerObj.connected ? '● Connected & Ready' : '◌ Reconnecting...';
+        statusEl.className = `mp-slot-status ${playerObj.connected ? 'online' : 'warn'}`;
+      }
+    };
+
+    fillSlot(1, p1);
+    fillSlot(2, p2);
+
+    const connectedCount = room.players.filter((p) => p.connected).length;
+    const bothReady = connectedCount === 2;
+    const waitMsg = document.getElementById('mp-waiting-msg');
+    if (waitMsg) {
+      if (!bothReady) {
+        waitMsg.textContent = `Waiting for Player 2 to join using 4-digit room code ${room.code}...`;
+        waitMsg.className = 'mp-waiting-banner';
+      } else if (mp.isHost) {
+        waitMsg.textContent = 'Both players connected (2 / 2)! Click Start Race to launch.';
+        waitMsg.className = 'mp-waiting-banner ready';
+      } else {
+        waitMsg.textContent = 'Both players connected (2 / 2)! Waiting for the Host to start the race...';
+        waitMsg.className = 'mp-waiting-banner ready';
+      }
+    }
+
+    const startBtn = document.getElementById('btn-mp-start-race');
+    if (startBtn) {
+      startBtn.disabled = !(mp.isHost && bothReady);
+      startBtn.textContent = mp.isHost
+        ? (bothReady ? '🏁 START RACE' : '⏳ WAITING FOR PLAYER 2')
+        : '⏳ WAITING FOR HOST TO START';
+    }
+  }
+
+  syncMultiplayerPauseButtons(isMultiplayerRace) {
+    document.getElementById('btn-pause-restart')?.classList.toggle('hidden', isMultiplayerRace);
+    document.getElementById('btn-pause-garage')?.classList.toggle('hidden', isMultiplayerRace);
+    document.getElementById('btn-pause-menu')?.classList.toggle('hidden', isMultiplayerRace);
+    document.getElementById('btn-pause-leave-mp')?.classList.toggle('hidden', !isMultiplayerRace);
   }
 
   _initMissionsScreen() {
@@ -264,7 +517,15 @@ export class UIManager {
 
   _initGarage() {
     document.getElementById('btn-garage-back')?.addEventListener('click', () => {
-      this.engine.leaveGarageToMenu();
+      if (this.returnFromGarageToMultiplayer) {
+        this.returnFromGarageToMultiplayer = false;
+        if (this.engine.garageCarMesh) this.engine.garageCarMesh.root.visible = false;
+        this.engine.spawnActivePlayerCar();
+        this.engine.multiplayerManager?.syncProfile();
+        this.engine.enterMultiplayerLobby();
+      } else {
+        this.engine.leaveGarageToMenu();
+      }
     });
 
     document.getElementById('btn-garage-race')?.addEventListener('click', () => {
@@ -672,16 +933,6 @@ export class UIManager {
       });
     });
 
-    const policeSelect = document.getElementById('setting-police');
-    if (policeSelect) {
-      policeSelect.value = (s.policeEnabled ?? true) ? 'on' : 'off';
-      policeSelect.addEventListener('change', () => {
-        const enabled = policeSelect.value === 'on';
-        this.save.updateSetting('policeEnabled', enabled);
-        this.engine.policeManager?.setEnabled(enabled);
-      });
-    }
-
     const bindSlider = (id, key, onChange) => {
       const el = document.getElementById(id);
       if (!el) return;
@@ -745,7 +996,6 @@ export class UIManager {
       this._syncSettingsControls();
       this.engine.environmentManager.applyEnvironment(freshSettings.timeOfDay, freshSettings.weather);
       this.engine.audioManager.applyAudioSettings(freshSettings);
-      this.engine.policeManager?.setEnabled(freshSettings.policeEnabled ?? true);
       this.engine.spawnActivePlayerCar();
 
       this.refreshMainMenu();
@@ -766,7 +1016,6 @@ export class UIManager {
     setVal('setting-weather', s.weather);
     setVal('setting-traffic', s.trafficDensity);
     setVal('setting-ai-difficulty', s.aiDifficulty);
-    setVal('setting-police', (s.policeEnabled ?? true) ? 'on' : 'off');
     setVal('setting-volume', s.soundVolume ?? 0.75);
     setVal('setting-engine-volume', s.engineVolume ?? 0.85);
     setVal('setting-sfx-volume', s.sfxVolume ?? 0.85);
@@ -817,6 +1066,11 @@ export class UIManager {
       this.engine.returnToMainMenu();
     });
 
+    document.getElementById('btn-pause-leave-mp')?.addEventListener('click', () => {
+      this.screens.pause.classList.add('hidden');
+      this.engine.leaveMultiplayerToLobby();
+    });
+
     document.getElementById('btn-results-replay')?.addEventListener('click', () => {
       this.screens.results.classList.add('hidden');
       this.engine.restartCurrentRace();
@@ -831,9 +1085,24 @@ export class UIManager {
       this.screens.results.classList.add('hidden');
       this.engine.returnToMainMenu();
     });
+
+    document.getElementById('btn-results-mp-lobby')?.addEventListener('click', () => {
+      this.screens.results.classList.add('hidden');
+      this.engine.multiplayerManager?.returnToRoomLobby();
+      this.engine.enterMultiplayerLobby();
+    });
+
+    document.getElementById('btn-results-mp-leave')?.addEventListener('click', () => {
+      this.screens.results.classList.add('hidden');
+      this.engine.leaveMultiplayerToLobby();
+    });
   }
 
   _initHUDButtons() {
+    document.getElementById('btn-hud-leave-mp')?.addEventListener('click', () => {
+      this.engine.leaveMultiplayerToLobby();
+    });
+
     document.getElementById('btn-hud-pause')?.addEventListener('click', () => {
       this.engine.togglePause();
     });
@@ -869,26 +1138,6 @@ export class UIManager {
       this.engine.hudController.showBanner(`Weather: ${labels[next]}`, 'cyan');
     });
 
-    document.getElementById('btn-hud-police')?.addEventListener('click', () => {
-      this.engine.audioManager.init();
-      this.engine.audioManager.playUIClick();
-      const pm = this.engine.policeManager;
-      if (!pm) return;
-      if (!pm.enabled) {
-        pm.setEnabled(true);
-        this.save.updateSetting('policeEnabled', true);
-        const sel = document.getElementById('setting-police');
-        if (sel) sel.value = 'on';
-      }
-      if (pm.wantedLevel === 0) {
-        pm.triggerPursuit(this.engine.playerPhysics, 'MANUAL PURSUIT CHALLENGE', 1);
-      } else if (pm.wantedLevel < 5) {
-        pm.triggerPursuit(this.engine.playerPhysics, 'WANTED HEAT INCREASED', pm.wantedLevel + 1);
-      } else {
-        pm.clearPursuit(true);
-      }
-    });
-
     const muteBtn = document.getElementById('btn-hud-mute');
     if (muteBtn) {
       this._syncHudMuteButton(Boolean(this.save.getSettings().audioMuted));
@@ -921,6 +1170,9 @@ export class UIManager {
   }
 
   showResultsModal(summary) {
+    document.getElementById('res-sp-actions')?.classList.remove('hidden');
+    document.getElementById('res-mp-actions')?.classList.add('hidden');
+
     document.getElementById('res-headline').textContent = summary.headline;
     document.getElementById('res-mode').textContent = summary.mode;
     document.getElementById('res-rank').textContent = summary.rankLabel;
@@ -947,6 +1199,56 @@ export class UIManager {
       } else {
         standingsWrap.classList.add('hidden');
       }
+    }
+
+    this.refreshCreditsDisplay();
+    this.screens.results.classList.remove('hidden');
+  }
+
+  showMultiplayerResultsModal({ results = [], winnerId = null, byForfeit = false, localPlayerId = null, roomCode = '' }) {
+    document.getElementById('res-sp-actions')?.classList.add('hidden');
+    document.getElementById('res-mp-actions')?.classList.remove('hidden');
+    document.getElementById('res-record-badge')?.classList.add('hidden');
+
+    const winnerRow = results.find((r) => r.id === winnerId) || results[0] || null;
+    const myRow = results.find((r) => r.id === localPlayerId) || null;
+    const didWin = Boolean(winnerRow && winnerRow.id === localPlayerId);
+
+    const rewardCredits = didWin ? 15000 : 7500;
+    this.save.addCredits(rewardCredits);
+
+    const headline = didWin
+      ? (byForfeit ? '🏆 VICTORY — OPPONENT LEFT!' : '🏆 VICTORY — YOU WON!')
+      : `🏁 WINNER: ${winnerRow ? winnerRow.name.toUpperCase() : 'OPPONENT'}`;
+
+    document.getElementById('res-headline').textContent = headline;
+    document.getElementById('res-mode').textContent = `Online 1v1 Multiplayer • Room ${roomCode}`;
+    document.getElementById('res-rank').textContent = winnerRow
+      ? `Winner: ${winnerRow.name} ${didWin ? '🥇' : '🥈'}`
+      : 'Race Complete';
+    document.getElementById('res-time').textContent = myRow && myRow.time !== null
+      ? this.engine.hudController.formatTime(myRow.time)
+      : (didWin && byForfeit ? 'Won by Forfeit' : 'DNF');
+    document.getElementById('res-reward').textContent = `+$${rewardCredits.toLocaleString()}`;
+
+    const standingsWrap = document.getElementById('res-standings-container');
+    const standingsList = document.getElementById('res-standings-list');
+    if (standingsWrap && standingsList) {
+      standingsWrap.classList.remove('hidden');
+      standingsList.innerHTML = results.map((row) => {
+        const isMe = row.id === localPlayerId;
+        const carDef = getCarById(row.carId);
+        const timeStr = row.forfeit
+          ? 'LEFT ROOM'
+          : (row.dnf || row.time === null ? 'DNF' : this.engine.hudController.formatTime(row.time));
+        return `
+          <div class="standing-row ${isMe ? 'player-row' : ''}">
+            <span class="st-pos">#${row.place}</span>
+            <span class="st-name">${row.name}${isMe ? ' (You)' : ''} • ${carDef.name}</span>
+            <span class="st-time">${timeStr}</span>
+          </div>
+        `;
+      }).join('');
     }
 
     this.refreshCreditsDisplay();

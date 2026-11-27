@@ -39,7 +39,7 @@ export class MinimapRenderer {
     };
   }
 
-  render(playerVehicle, trafficVehicles = [], nextCheckpointPos = null, policeUnits = []) {
+  render(playerVehicle, trafficVehicles = [], nextCheckpointPos = null, remotePlayer = null) {
     if (!this.ctx || !this.canvas) return;
     const ctx = this.ctx;
     const w = this.canvas.width;
@@ -139,18 +139,25 @@ export class MinimapRenderer {
       ctx.fill();
     }
 
-    // Police Patrol & Pursuit Interceptor Blips (Flashing Red / Blue)
-    const redFlash = Math.floor(Date.now() / 160) % 2 === 0;
-    for (const unit of policeUnits) {
-      if (!unit.active) continue;
-      const p = this._worldToCanvas(unit.position.x, unit.position.z, w, h);
-      ctx.fillStyle = redFlash ? '#ef4444' : '#3b82f6';
-      ctx.beginPath();
-      ctx.arc(p.px, p.py, 4.5, 0, Math.PI * 2);
-      ctx.fill();
+    // Remote Multiplayer Opponent Arrow Marker
+    if (remotePlayer && remotePlayer.position) {
+      const rp = this._worldToCanvas(remotePlayer.position.x, remotePlayer.position.z, w, h);
+      ctx.save();
+      ctx.translate(rp.px, rp.py);
+      ctx.rotate(-(remotePlayer.heading || 0));
+
+      ctx.fillStyle = remotePlayer.color || '#f43f5e';
       ctx.strokeStyle = '#ffffff';
-      ctx.lineWidth = 1.2;
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(0, -7);
+      ctx.lineTo(5.5, 5.5);
+      ctx.lineTo(0, 3);
+      ctx.lineTo(-5.5, 5.5);
+      ctx.closePath();
+      ctx.fill();
       ctx.stroke();
+      ctx.restore();
     }
 
     // Player Directional Arrow Marker

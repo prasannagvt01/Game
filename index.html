@@ -52,6 +52,9 @@
           <button id="btn-menu-play" class="btn-primary btn-large">
             <span>▶ LAUNCH EVENT</span>
           </button>
+          <button id="btn-menu-multiplayer" class="btn-mp-cta btn-large">
+            <span>🌐 MULTIPLAYER</span>
+          </button>
           <button id="btn-menu-missions" class="btn-accent btn-large">
             <span>🎯 MISSIONS</span>
           </button>
@@ -81,6 +84,142 @@
           <li><kbd>H</kbd> <span>Horn</span></li>
           <li><kbd>ESC</kbd> <span>Pause Menu</span></li>
         </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- =========================================================
+       ONLINE 1V1 MULTIPLAYER LOBBY SCREEN
+       ========================================================= -->
+  <section id="screen-multiplayer" class="ui-screen hidden">
+    <header class="top-nav-bar">
+      <button id="btn-mp-back" class="btn-ghost">← BACK TO MENU</button>
+      <div class="garage-header-title">
+        <h2>ONLINE 1V1 MULTIPLAYER</h2>
+        <p>Create a 4-digit private room or join a friend in real time</p>
+      </div>
+      <div class="player-wallet-bar">
+        <div class="active-car-pill">
+          <span class="pill-label">NETWORK</span>
+          <span id="mp-conn-status" class="pill-value mp-conn-badge">● READY</span>
+        </div>
+        <div class="active-car-pill">
+          <span class="pill-label">SELECTED CAR</span>
+          <span id="mp-active-car-name" class="pill-value">Toyota Supra MK5</span>
+        </div>
+      </div>
+    </header>
+
+    <div class="mp-lobby-container">
+      <!-- Friendly validation / room error alert -->
+      <div id="mp-error-banner" class="mp-error-alert hidden" role="alert"></div>
+
+      <!-- STEP 1: Create or Join Room -->
+      <div id="mp-entry-view" class="mp-entry-layout">
+        <div class="mp-profile-bar glass-panel">
+          <div class="mp-field-group">
+            <label for="mp-player-name" class="sub-label">YOUR DRIVER NAME</label>
+            <input id="mp-player-name" class="mp-text-input" type="text" maxlength="16" placeholder="Enter your name" value="Racer" />
+          </div>
+          <div class="mp-field-group mp-server-group">
+            <label for="mp-server-url" class="sub-label">SERVER URL (OPTIONAL FOR REMOTE HOST)</label>
+            <input id="mp-server-url" class="mp-text-input" type="text" placeholder="Auto (same server) or wss://your-host.onrender.com" />
+          </div>
+          <button id="btn-mp-change-car" type="button" class="btn-secondary">🔧 CHANGE CAR</button>
+        </div>
+
+        <div class="mp-cards-row">
+          <div class="mp-action-card glass-panel">
+            <div class="mp-card-badge">HOST A MATCH</div>
+            <h3>Create Private Room</h3>
+            <p>Generate a unique 4-digit room code and invite your friend for a real-time 1v1 race on the Grand Prix circuit.</p>
+            <button id="btn-mp-create" type="button" class="btn-primary btn-large">➕ CREATE ROOM</button>
+          </div>
+
+          <div class="mp-action-card glass-panel">
+            <div class="mp-card-badge accent">JOIN FRIEND</div>
+            <h3>Join with 4-Digit Code</h3>
+            <p>Enter the 4-digit room code shared by your friend to connect directly to their race lobby.</p>
+            <div class="mp-join-row">
+              <input
+                id="mp-join-code"
+                class="mp-code-input"
+                type="text"
+                inputmode="numeric"
+                pattern="[0-9]*"
+                maxlength="4"
+                placeholder="0000"
+                autocomplete="off"
+              />
+              <button id="btn-mp-join" type="button" class="btn-accent btn-large">→ JOIN ROOM</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- STEP 2: Connected Room Lobby (Max 2 Players) -->
+      <div id="mp-room-view" class="mp-room-layout glass-panel hidden">
+        <div class="mp-room-top-row">
+          <div class="mp-code-showcase">
+            <span class="sub-label">4-DIGIT ROOM CODE (SHARE WITH FRIEND)</span>
+            <div class="mp-code-copy-line">
+              <span id="mp-room-code-val" class="mp-room-digits">----</span>
+              <button id="btn-mp-copy-code" type="button" class="btn-secondary mp-copy-btn">📋 COPY CODE</button>
+            </div>
+          </div>
+
+          <div class="mp-race-config">
+            <label for="mp-laps-select" class="sub-label">RACE DISTANCE</label>
+            <select id="mp-laps-select" class="mp-select">
+              <option value="2">2 Laps — Sprint</option>
+              <option value="3">3 Laps — Standard GP</option>
+              <option value="5">5 Laps — Endurance</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="mp-players-grid">
+          <div id="mp-slot-1" class="mp-player-slot">
+            <div class="mp-slot-head">
+              <span class="mp-slot-tag">PLAYER 1</span>
+              <span id="mp-p1-role" class="mp-role-pill host">HOST</span>
+            </div>
+            <div id="mp-p1-name" class="mp-slot-name">Waiting...</div>
+            <div class="mp-slot-car-line">
+              <span id="mp-p1-swatch" class="mp-car-dot"></span>
+              <span id="mp-p1-car" class="mp-slot-car">—</span>
+            </div>
+            <div id="mp-p1-status" class="mp-slot-status online">● Connected</div>
+          </div>
+
+          <div class="mp-vs-divider">VS</div>
+
+          <div id="mp-slot-2" class="mp-player-slot waiting">
+            <div class="mp-slot-head">
+              <span class="mp-slot-tag">PLAYER 2</span>
+              <span id="mp-p2-role" class="mp-role-pill">CHALLENGER</span>
+            </div>
+            <div id="mp-p2-name" class="mp-slot-name">Waiting for friend...</div>
+            <div class="mp-slot-car-line">
+              <span id="mp-p2-swatch" class="mp-car-dot"></span>
+              <span id="mp-p2-car" class="mp-slot-car">Share the 4-digit code above</span>
+            </div>
+            <div id="mp-p2-status" class="mp-slot-status">○ Waiting (1 / 2 Players)</div>
+          </div>
+        </div>
+
+        <div id="mp-waiting-msg" class="mp-waiting-banner">
+          Waiting for Player 2 to join with the 4-digit room code...
+        </div>
+
+        <div class="mp-room-actions">
+          <button id="btn-mp-start-race" type="button" class="btn-primary btn-large" disabled>
+            🏁 START RACE
+          </button>
+          <button id="btn-mp-leave-room" type="button" class="btn-danger">
+            🚪 LEAVE ROOM
+          </button>
+        </div>
       </div>
     </div>
   </section>
@@ -362,9 +501,6 @@
         <button id="btn-hud-weather" class="hud-icon-btn" title="Toggle Weather (Sunny / Rain / Fog)">
           🌧️ Weather
         </button>
-        <button id="btn-hud-police" class="hud-icon-btn" title="Trigger / Toggle Police Pursuit">
-          🚨 Police
-        </button>
         <button id="btn-hud-mute" class="hud-icon-btn" title="Mute / Unmute Audio">
           🔊 Audio
         </button>
@@ -377,19 +513,23 @@
     <!-- Compact Non-Blocking HUD Notification -->
     <div id="hud-event-banner" class="hud-notify-pill hud-banner tone-cyan" role="status" aria-live="polite"></div>
 
-    <!-- Live Police Pursuit & Wanted Stars Tracker -->
-    <div id="hud-pursuit-tracker" class="hud-pursuit-card glass-hud hidden">
-      <div class="hud-pursuit-header">
-        <span class="pursuit-badge-tag">🚨 POLICE (<span id="hud-wanted-level-num">LV 1</span>)</span>
-        <span id="hud-wanted-stars" class="wanted-stars">★ ☆ ☆ ☆ ☆</span>
+    <!-- Live Online Multiplayer 1v1 Standings & Leave Room HUD -->
+    <div id="hud-mp-tracker" class="hud-mp-card glass-hud hidden">
+      <div class="hud-mp-header">
+        <span id="hud-mp-room-code" class="mp-hud-room-tag">ROOM ----</span>
+        <span id="hud-mp-ping" class="mp-hud-ping">● LIVE</span>
       </div>
-      <div class="hud-pursuit-subrow">
-        <div id="hud-pursuit-status" class="hud-pursuit-status">PURSUIT ACTIVE • 2 UNITS</div>
-        <span id="hud-escape-pct" class="hud-escape-tag">ESCAPE: 0%</span>
+      <div class="hud-mp-standings">
+        <div class="hud-mp-row first">
+          <span id="hud-mp-p1-name" class="hud-mp-name">1st • Player 1</span>
+          <span id="hud-mp-p1-meta" class="hud-mp-meta">Lap 1/2</span>
+        </div>
+        <div class="hud-mp-row">
+          <span id="hud-mp-p2-name" class="hud-mp-name">2nd • Player 2</span>
+          <span id="hud-mp-p2-meta" class="hud-mp-meta">Lap 1/2</span>
+        </div>
       </div>
-      <div class="progress-track">
-        <div id="hud-pursuit-fill" class="progress-fill"></div>
-      </div>
+      <button id="btn-hud-leave-mp" type="button" class="hud-mp-leave-btn">🚪 Leave Room</button>
     </div>
 
     <!-- Live Mission Objective & Progress Tracker Panel -->
@@ -500,6 +640,7 @@
         <button id="btn-pause-restart" class="btn-secondary">↺ RESTART EVENT</button>
         <button id="btn-pause-garage" class="btn-secondary">🔧 OPEN GARAGE</button>
         <button id="btn-pause-settings" class="btn-ghost">⚙ SETTINGS</button>
+        <button id="btn-pause-leave-mp" class="btn-danger hidden">🚪 LEAVE MULTIPLAYER ROOM</button>
         <button id="btn-pause-menu" class="btn-ghost">🏠 MAIN MENU</button>
       </div>
     </div>
@@ -538,14 +679,6 @@
             <option value="easy">Easy AI (1.0x Prize Bonus)</option>
             <option value="medium">Medium AI (1.25x Prize Bonus)</option>
             <option value="hard">Hard AI (1.60x Prize Bonus)</option>
-          </select>
-        </label>
-
-        <label class="setting-field">
-          <span>Police Pursuit System</span>
-          <select id="setting-police">
-            <option value="on">Enabled (Patrols &amp; Wanted Pursuits)</option>
-            <option value="off">Disabled (No Police Pursuits)</option>
           </select>
         </label>
 
@@ -688,10 +821,15 @@
         <div id="res-standings-list" class="standings-list"></div>
       </div>
 
-      <div class="modal-btn-stack">
+      <div id="res-sp-actions" class="modal-btn-stack">
         <button id="btn-results-replay" class="btn-primary">↺ RACE AGAIN</button>
         <button id="btn-results-garage" class="btn-secondary">🔧 UPGRADE IN GARAGE</button>
         <button id="btn-results-menu" class="btn-ghost">🏠 MAIN MENU</button>
+      </div>
+
+      <div id="res-mp-actions" class="modal-btn-stack hidden">
+        <button id="btn-results-mp-lobby" class="btn-primary">↺ BACK TO ROOM LOBBY</button>
+        <button id="btn-results-mp-leave" class="btn-danger">🚪 LEAVE ROOM</button>
       </div>
     </div>
   </div>

@@ -57,11 +57,10 @@ export const DEFAULT_SAVE = {
     traffic: 0
   },
   settings: {
-    timeOfDay: 'day',         // 'day' | 'sunset' | 'night'
+    timeOfDay: 'day',         // 'sunrise' | 'day' | 'sunset' | 'night'
     weather: 'clear',         // 'clear' | 'rain' | 'fog'
     trafficDensity: 'medium', // 'low' | 'medium' | 'high'
     aiDifficulty: 'medium',   // 'easy' | 'medium' | 'hard'
-    policeEnabled: true,      // Optional Police Pursuit System toggle
     quality: 'high',          // 'medium' | 'high'
     soundVolume: 0.75,
     engineVolume: 0.85,
@@ -335,11 +334,10 @@ export class SaveManager {
     // 8. Validate Settings
     if (candidate.settings && typeof candidate.settings === 'object' && !Array.isArray(candidate.settings)) {
       const s = candidate.settings;
-      if (['day', 'sunset', 'night'].includes(s.timeOfDay)) clean.settings.timeOfDay = s.timeOfDay;
+      if (['sunrise', 'day', 'sunset', 'night'].includes(s.timeOfDay)) clean.settings.timeOfDay = s.timeOfDay;
       if (['clear', 'rain', 'fog'].includes(s.weather)) clean.settings.weather = s.weather;
       if (['low', 'medium', 'high'].includes(s.trafficDensity)) clean.settings.trafficDensity = s.trafficDensity;
       if (['easy', 'medium', 'hard'].includes(s.aiDifficulty)) clean.settings.aiDifficulty = s.aiDifficulty;
-      if (typeof s.policeEnabled === 'boolean') clean.settings.policeEnabled = s.policeEnabled;
       if (['medium', 'high'].includes(s.quality)) clean.settings.quality = s.quality;
       if (typeof s.audioMuted === 'boolean') clean.settings.audioMuted = s.audioMuted;
 

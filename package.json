@@ -2,15 +2,17 @@
   "name": "ultimate-street-racing-3d",
   "version": "1.0.0",
   "type": "module",
-  "description": "Professional 3D Car Racing Game built with Three.js, Vite, WebGL, HTML5, CSS3, and modular ES6 JavaScript",
+  "description": "Professional 3D Car Racing Game built with Three.js, Vite, WebGL, HTML5, CSS3, modular ES6 JavaScript, and WebSocket Multiplayer",
   "scripts": {
     "dev": "vite",
-    "start": "vite",
+    "start": "node server.js",
+    "serve": "node server.js",
     "build": "vite build",
     "preview": "vite preview"
   },
   "dependencies": {
-    "three": "^0.170.0"
+    "three": "^0.170.0",
+    "ws": "^8.18.0"
   },
   "devDependencies": {
     "vite": "^6.0.0"

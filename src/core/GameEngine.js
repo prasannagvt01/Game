@@ -9,13 +9,13 @@ import { getCarById, computeEffectiveSpecs } from '../vehicles/CarCatalog.js';
 import { CarBuilder } from '../vehicles/CarBuilder.js';
 import { VehiclePhysics } from '../vehicles/VehiclePhysics.js';
 import { TrafficManager } from '../ai/TrafficManager.js';
-import { PoliceManager } from '../ai/PoliceManager.js';
 import { RaceManager, GAME_MODES } from '../modes/RaceManager.js';
 import { ParticleSystem } from '../effects/ParticleSystem.js';
 import { AudioManager } from '../audio/AudioManager.js';
 import { HUDController } from '../ui/HUDController.js';
 import { MinimapRenderer } from '../ui/MinimapRenderer.js';
 import { UIManager } from '../ui/UIManager.js';
+import { MultiplayerManager } from '../network/MultiplayerManager.js';
 
 export class GameEngine {
   constructor(canvasContainerId) {
@@ -73,11 +73,9 @@ export class GameEngine {
     this.environmentManager.applyEnvironment(settings.timeOfDay, settings.weather);
     this.audioManager.applyAudioSettings(settings);
 
-    // 2. Particle VFX, AI Traffic & Optional Police Pursuit System
+    // 2. Particle VFX & AI Traffic System
     this.particleSystem = new ParticleSystem(this.scene);
     this.trafficManager = new TrafficManager(this.scene, this.trackSpline);
-    this.policeManager = new PoliceManager(this.scene, this.trackSpline, this.saveManager);
-    this.policeManager.setEnabled(settings.policeEnabled ?? true);
 
     // 3. Player Vehicle & Physics
     this.playerPhysics = new VehiclePhysics(this.trackSpline);
@@ -85,11 +83,16 @@ export class GameEngine {
     this.garageCarMesh = null;
     this.spawnActivePlayerCar();
 
-    // 4. Race Manager
+    // 4. Race Manager & Real-Time WebSocket Multiplayer Manager
     this.raceManager = new RaceManager(
       this.scene,
       this.trackSpline,
       this.trafficManager,
+      this.saveManager
+    );
+    this.multiplayerManager = new MultiplayerManager(
+      this.scene,
+      this.trackSpline,
       this.saveManager
     );
 
@@ -101,16 +104,34 @@ export class GameEngine {
       this.hudController.showBanner(msg, color);
     };
 
-    this.policeManager.onPursuitNotification = (msg, color) => {
-      this.hudController.showBanner(msg, color);
+    this.raceManager.onMultiplayerLocalFinish = (elapsedSeconds) => {
+      this.multiplayerManager.reportLocalFinish(elapsedSeconds);
     };
 
-    // Report player traffic collisions to PoliceManager as traffic offenses (reckless driving heat)
-    const origCollisionCb = this.trafficManager.onCollisionCallback;
-    this.trafficManager.onCollisionCallback = (severity, hitCar) => {
-      if (origCollisionCb) origCollisionCb(severity, hitCar);
-      if (this.appState === 'playing' && this.raceManager.state === 'active') {
-        this.policeManager.reportTrafficOffense(this.playerPhysics, severity);
+    this.multiplayerManager.onNotify = (msg, tone) => {
+      this.hudController.showBanner(msg, tone);
+    };
+
+    this.multiplayerManager.onRaceStart = (startData) => {
+      this.startMultiplayerRace(startData);
+    };
+
+    this.multiplayerManager.onRaceResults = (mpResults) => {
+      this.appState = 'menu';
+      this.uiManager.showMultiplayerResultsModal(mpResults);
+    };
+
+    this.multiplayerManager.onLeftRoom = () => {
+      if (this.raceManager.isMultiplayer) {
+        this.raceManager.isMultiplayer = false;
+        this.raceManager.state = 'idle';
+        this.raceManager.checkpointArchGroup.visible = false;
+      }
+      if (this.appState === 'playing' || this.appState === 'paused') {
+        this.appState = 'menu';
+        this.uiManager.showScreen('multiplayer');
+      } else {
+        this.uiManager?.renderMultiplayerLobby();
       }
     };
 
@@ -195,6 +216,10 @@ export class GameEngine {
 
   startRaceMode(modeId) {
     this.audioManager.init();
+    if (this.multiplayerManager.isInRoom()) {
+      this.multiplayerManager.leaveRoom(true);
+    }
+    this.uiManager.syncMultiplayerPauseButtons(false);
     if (this.garageCarMesh) {
       this.garageCarMesh.root.visible = false;
     }
@@ -211,7 +236,6 @@ export class GameEngine {
 
     this.hudController?.clearNotifications();
     this.raceManager.startMode(modeId, this.playerPhysics, this.audioManager);
-    this.policeManager.resetForMode(modeId, this.playerPhysics);
     this.cameraController.snapToVehicle(this.playerPhysics);
   }
 
@@ -225,6 +249,10 @@ export class GameEngine {
 
   startMissionMode(missionId) {
     this.audioManager.init();
+    if (this.multiplayerManager.isInRoom()) {
+      this.multiplayerManager.leaveRoom(true);
+    }
+    this.uiManager.syncMultiplayerPauseButtons(false);
     if (this.garageCarMesh) {
       this.garageCarMesh.root.visible = false;
     }
@@ -236,7 +264,6 @@ export class GameEngine {
 
     this.hudController?.clearNotifications();
     this.raceManager.startMission(missionId, this.playerPhysics, this.audioManager);
-    this.policeManager.resetForMode(this.raceManager.currentMode, this.playerPhysics);
 
     const modeTitle = document.getElementById('hud-mode-title');
     if (modeTitle && this.raceManager.activeMission) {
@@ -250,6 +277,44 @@ export class GameEngine {
     this.audioManager.init();
     this.appState = 'menu';
     this.uiManager.showScreen('missions');
+  }
+
+  enterMultiplayerLobby() {
+    this.audioManager.init();
+    this.appState = 'menu';
+    this.uiManager.showScreen('multiplayer');
+  }
+
+  startMultiplayerRace({ laps = 2, slot = 1, countdownSeconds = 3.4 }) {
+    this.audioManager.init();
+    if (this.garageCarMesh) {
+      this.garageCarMesh.root.visible = false;
+    }
+    this.spawnActivePlayerCar();
+    this.activeCarMesh.root.visible = true;
+
+    this.appState = 'playing';
+    this.uiManager.showScreen('hud');
+    this.uiManager.syncMultiplayerPauseButtons(true);
+
+    const modeTitle = document.getElementById('hud-mode-title');
+    if (modeTitle) {
+      modeTitle.textContent = `ONLINE 1V1 • ROOM ${this.multiplayerManager.roomCode || ''}`;
+    }
+
+    this.hudController?.clearNotifications();
+    this.raceManager.startMultiplayerRace({ laps, slot, countdownSeconds }, this.playerPhysics);
+    this.cameraController.snapToVehicle(this.playerPhysics);
+  }
+
+  leaveMultiplayerToLobby() {
+    this.multiplayerManager.leaveRoom(true);
+    this.raceManager.isMultiplayer = false;
+    this.raceManager.state = 'idle';
+    this.raceManager.checkpointArchGroup.visible = false;
+    this.uiManager.syncMultiplayerPauseButtons(false);
+    this.appState = 'menu';
+    this.uiManager.showScreen('multiplayer');
   }
 
   enterGarage() {
@@ -271,11 +336,22 @@ export class GameEngine {
 
   returnToMainMenu() {
     this.appState = 'menu';
+    this.uiManager.syncMultiplayerPauseButtons(false);
+    if (this.trafficManager.vehicles.length === 0) {
+      this.trafficManager.spawnForMode('freeroam', this.saveManager.getSettings().trafficDensity);
+    }
     this.uiManager.showScreen('mainMenu');
   }
 
   togglePause() {
     const pauseModal = document.getElementById('modal-pause');
+    // In live online multiplayer, show/hide overlay without freezing real-time network simulation
+    if (this.raceManager.isMultiplayer) {
+      const isHidden = pauseModal?.classList.contains('hidden');
+      if (isHidden) pauseModal?.classList.remove('hidden');
+      else pauseModal?.classList.add('hidden');
+      return;
+    }
     if (this.appState === 'playing') {
       this.appState = 'paused';
       pauseModal?.classList.remove('hidden');
@@ -345,26 +421,24 @@ export class GameEngine {
 
     this.updateHeadlightState();
     this.worldBuilder.updatePedestrians(dt);
-    this.raceManager.update(dt, this.playerPhysics, this.audioManager, this.particleSystem);
-    if (canDrive) {
-      this.policeManager.update(
-        dt,
-        this.playerPhysics,
-        this.particleSystem,
-        this.audioManager,
-        this.trafficManager.vehicles
-      );
-    }
+    this.raceManager.update(
+      dt,
+      this.playerPhysics,
+      this.audioManager,
+      this.particleSystem,
+      this.multiplayerManager.opponent
+    );
+    this.multiplayerManager.update(
+      dt,
+      this.playerPhysics,
+      this.raceManager,
+      this.particleSystem,
+      this.audioManager
+    );
     this.particleSystem.update(dt);
     this.cameraController.update(dt, this.playerPhysics, this.inputManager, false);
     this.environmentManager.update(dt, this.playerPhysics.position);
     this.audioManager.updateVehicleAudio(this.playerPhysics, this.inputManager, true);
-    this.audioManager.updatePoliceSiren(
-      dt,
-      this.policeManager.wantedLevel,
-      this.policeManager.closestUnitDist,
-      true
-    );
 
     // Update Telemetry HUD & GPS Minimap
     this.hudController.update(
@@ -372,13 +446,13 @@ export class GameEngine {
       this.raceManager,
       this.saveManager,
       this.cameraController,
-      this.policeManager
+      this.multiplayerManager
     );
     this.minimapRenderer.render(
       this.playerPhysics,
       this.trafficManager.vehicles,
       this.raceManager.getNextCheckpointWorldPos(),
-      this.policeManager.getActiveUnits()
+      this.multiplayerManager.getOpponentMinimapMarker()
     );
   }
 }

@@ -43,13 +43,14 @@ export class HUDController {
     this.elMissionSub = document.getElementById('hud-msn-progress-text');
     this.elMissionFill = document.getElementById('hud-msn-progress-fill');
 
-    // Police Pursuit & Wanted Level HUD Panel
-    this.elPursuitCard = document.getElementById('hud-pursuit-tracker');
-    this.elWantedStars = document.getElementById('hud-wanted-stars');
-    this.elWantedLevelNum = document.getElementById('hud-wanted-level-num');
-    this.elPursuitStatus = document.getElementById('hud-pursuit-status');
-    this.elPursuitEscapePct = document.getElementById('hud-escape-pct');
-    this.elPursuitFill = document.getElementById('hud-pursuit-fill');
+    // Online Multiplayer Live Standings HUD Panel
+    this.elMpCard = document.getElementById('hud-mp-tracker');
+    this.elMpRoomBadge = document.getElementById('hud-mp-room-code');
+    this.elMpPing = document.getElementById('hud-mp-ping');
+    this.elMpP1Name = document.getElementById('hud-mp-p1-name');
+    this.elMpP1Meta = document.getElementById('hud-mp-p1-meta');
+    this.elMpP2Name = document.getElementById('hud-mp-p2-name');
+    this.elMpP2Meta = document.getElementById('hud-mp-p2-meta');
 
     // Non-blocking HUD notification queue state (max 1 visible pill, 2s display, merge/queue support)
     this.bannerTimeout = null;
@@ -94,8 +95,6 @@ export class HUDController {
       category = 'mission';
     } else if (upper.includes('LAP')) {
       category = 'lap';
-    } else if (upper.includes('PURSUIT') || upper.includes('BUSTED') || upper.includes('EVADED')) {
-      category = 'police';
     } else if (upper.includes('RESET')) {
       category = 'system';
       replaceLive = true;
@@ -108,7 +107,6 @@ export class HUDController {
       toneHint === '#22c55e' ||
       toneHint === '#4ade80' ||
       upper.includes('+$') ||
-      upper.includes('EVADED') ||
       upper.includes('GO!') ||
       upper.includes('DELIVERED')
     ) {
@@ -239,7 +237,7 @@ export class HUDController {
     }
   }
 
-  update(vehicle, raceManager, saveManager, cameraController, policeManager = null) {
+  update(vehicle, raceManager, saveManager, cameraController, multiplayerManager = null) {
     if (!vehicle) return;
 
     // 1. Speedometer (Digital + Radial Arc + Rotating Needle)
@@ -408,53 +406,47 @@ export class HUDController {
       }
     }
 
-    // 8. Police Pursuit, Wanted Level, Pursuit Status & Escape Progress HUD Tracker
-    if (this.elPursuitCard) {
-      if (policeManager && policeManager.enabled && policeManager.wantedLevel > 0) {
-        this.elPursuitCard.classList.remove('hidden');
-        const lvl = policeManager.wantedLevel;
-        const stars = '★'.repeat(lvl) + '☆'.repeat(5 - lvl);
-        if (this.elWantedStars) this.elWantedStars.textContent = stars;
-        if (this.elWantedLevelNum) this.elWantedLevelNum.textContent = `LV ${lvl}`;
-
-        if (policeManager.bustedProgress > 5) {
-          if (this.elPursuitStatus) {
-            this.elPursuitStatus.textContent = `⚠ ARREST IN PROGRESS (${policeManager.bustedProgress}%)!`;
-          }
-          if (this.elPursuitEscapePct) {
-            this.elPursuitEscapePct.textContent = `ESCAPE: 0%`;
-          }
-          if (this.elPursuitFill) {
-            this.elPursuitFill.style.width = `${policeManager.bustedProgress}%`;
-            this.elPursuitFill.style.background = '#ef4444';
-          }
-        } else if (policeManager.state === 'escaping') {
-          if (this.elPursuitStatus) {
-            this.elPursuitStatus.textContent = `EVADING VISUAL CONTACT • ESCAPING`;
-          }
-          if (this.elPursuitEscapePct) {
-            this.elPursuitEscapePct.textContent = `ESCAPE: ${policeManager.escapeProgress}%`;
-          }
-          if (this.elPursuitFill) {
-            this.elPursuitFill.style.width = `${policeManager.escapeProgress}%`;
-            this.elPursuitFill.style.background = '#22c55e';
-          }
-        } else {
-          const dist = Math.round(policeManager.closestUnitDist);
-          const units = policeManager.getActiveUnits().length;
-          if (this.elPursuitStatus) {
-            this.elPursuitStatus.textContent = `PURSUIT ACTIVE • ${units} UNIT${units !== 1 ? 'S' : ''} (${dist}m)`;
-          }
-          if (this.elPursuitEscapePct) {
-            this.elPursuitEscapePct.textContent = `ESCAPE: ${policeManager.escapeProgress}%`;
-          }
-          if (this.elPursuitFill) {
-            this.elPursuitFill.style.width = `${Math.max(15, 100 - Math.min(100, dist))}%`;
-            this.elPursuitFill.style.background = 'linear-gradient(90deg, #ef4444, #3b82f6)';
-          }
+    // 8. Online Multiplayer Live Leaderboard & Opponent Telemetry HUD
+    if (this.elMpCard) {
+      if (multiplayerManager && multiplayerManager.isInRoom() && raceManager?.isMultiplayer) {
+        this.elMpCard.classList.remove('hidden');
+        if (this.elMpRoomBadge) {
+          this.elMpRoomBadge.textContent = `ROOM ${multiplayerManager.roomCode}`;
         }
+        if (this.elMpPing) {
+          const rtt = multiplayerManager.pingMs ? `${multiplayerManager.pingMs}ms` : 'LIVE';
+          this.elMpPing.textContent = multiplayerManager.connectionState === 'reconnecting' ? 'RECONNECTING' : `● ${rtt}`;
+        }
+
+        const meName = multiplayerManager.getSavedPlayerName() || 'You';
+        const opp = multiplayerManager.opponent;
+        const myPos = raceManager.playerPosition || 1;
+        const oppPos = myPos === 1 ? 2 : 1;
+
+        const p1Entry = myPos === 1
+          ? { name: `${meName} (You)`, meta: `Lap ${raceManager.currentLap}/${raceManager.totalLaps} • ${speedKmh} km/h` }
+          : {
+              name: opp ? opp.name : 'Opponent',
+              meta: opp
+                ? (opp.finished ? `Finished (${this.formatTime(opp.finishTime || 0)})` : `Lap ${opp.lap}/${raceManager.totalLaps} • ${Math.round(Math.abs(opp.speed) * 3.6)} km/h`)
+                : 'Waiting...'
+            };
+
+        const p2Entry = myPos === 2
+          ? { name: `${meName} (You)`, meta: `Lap ${raceManager.currentLap}/${raceManager.totalLaps} • ${speedKmh} km/h` }
+          : {
+              name: opp ? opp.name : 'Opponent',
+              meta: opp
+                ? (opp.finished ? `Finished (${this.formatTime(opp.finishTime || 0)})` : (opp.connected === false ? 'Reconnecting...' : `Lap ${opp.lap}/${raceManager.totalLaps} • ${Math.round(Math.abs(opp.speed) * 3.6)} km/h`))
+                : 'Disconnected'
+            };
+
+        if (this.elMpP1Name) this.elMpP1Name.textContent = `1st • ${p1Entry.name}`;
+        if (this.elMpP1Meta) this.elMpP1Meta.textContent = p1Entry.meta;
+        if (this.elMpP2Name) this.elMpP2Name.textContent = `2nd • ${p2Entry.name}`;
+        if (this.elMpP2Meta) this.elMpP2Meta.textContent = p2Entry.meta;
       } else {
-        this.elPursuitCard.classList.add('hidden');
+        this.elMpCard.classList.add('hidden');
       }
     }
   }

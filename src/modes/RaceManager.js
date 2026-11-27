@@ -71,6 +71,7 @@ export class RaceManager {
 
     this.currentMode = 'circuit';
     this.activeMission = null; // Non-null when playing a structured campaign mission
+    this.isMultiplayer = false;
     this.state = 'idle'; // 'countdown' | 'active' | 'finished' | 'idle'
     this.countdownTimer = 0;
     this.lastCountdownBeep = 4;
@@ -119,6 +120,7 @@ export class RaceManager {
 
     this.onBannerMessage = null;
     this.onRaceFinished = null;
+    this.onMultiplayerLocalFinish = null;
   }
 
   _buildCheckpointArchMesh() {
@@ -149,6 +151,7 @@ export class RaceManager {
    * Starts one of the 6 standard game modes
    */
   startMode(modeId, playerVehicle, audioManager = null) {
+    this.isMultiplayer = false;
     this.activeMission = null;
     this.currentMode = GAME_MODES[modeId] ? modeId : 'circuit';
     const settings = this.saveManager.getSettings();
@@ -209,6 +212,7 @@ export class RaceManager {
    * Starts a structured Mission from MISSION_CATALOG (covering all 6 mission types)
    */
   startMission(missionId, playerVehicle, audioManager = null) {
+    this.isMultiplayer = false;
     const mission = getMissionById(missionId);
     this.activeMission = mission;
     this._resetCommonTelemetry();
@@ -289,6 +293,38 @@ export class RaceManager {
     this._updateMissionProgressState(playerVehicle);
   }
 
+  /**
+   * Starts a synchronized 1v1 online multiplayer race on the main circuit
+   */
+  startMultiplayerRace({ laps = 2, slot = 1, countdownSeconds = 3.4 }, playerVehicle) {
+    this.isMultiplayer = true;
+    this.activeMission = null;
+    this.currentMode = 'circuit';
+
+    this._resetCommonTelemetry();
+    this.totalLaps = laps || 2;
+    this._setupCheckpoints();
+
+    const startT = 0.025;
+    const startLateral = slot === 1 ? -2.8 : 2.8;
+    playerVehicle.resetAtTrackT(startT, startLateral);
+    playerVehicle.distanceDriven = 0;
+    playerVehicle.driftScoreAccum = 0;
+    this.lastTrackT = startT;
+
+    // Clean 1v1 track so both players race the exact same circuit conditions
+    this.traffic.clearAll();
+
+    this.state = 'countdown';
+    this.countdownTimer = countdownSeconds;
+    this.lastCountdownBeep = Math.max(4, Math.ceil(countdownSeconds) + 1);
+    this.totalRacers = 2;
+    this.playerPosition = slot === 1 ? 1 : 2;
+
+    this.checkpointArchGroup.visible = true;
+    this._placeCheckpointArchAt(this.checkpoints[this.activeCheckpointIdx], false);
+  }
+
   _resetCommonTelemetry() {
     this.elapsedTime = 0;
     this.remainingTime = 0;
@@ -352,7 +388,7 @@ export class RaceManager {
     }
   }
 
-  update(dt, playerVehicle, audioManager = null, particleSystem = null) {
+  update(dt, playerVehicle, audioManager = null, particleSystem = null, mpOpponent = null) {
     if (this.state === 'idle' || this.state === 'finished') return;
 
     this.missedCheckpointWarnCooldown = Math.max(0, this.missedCheckpointWarnCooldown - dt);
@@ -468,7 +504,11 @@ export class RaceManager {
       this.playerTotalProgress = this.totalCheckpointsCleared + frac;
     }
 
-    if (this.currentMode === 'circuit' || this.currentMode === 'city_race') {
+    if (this.isMultiplayer) {
+      this.totalRacers = 2;
+      const oppAhead = mpOpponent && (mpOpponent.finished || mpOpponent.totalProgress > this.playerTotalProgress);
+      this.playerPosition = oppAhead ? 2 : 1;
+    } else if (this.currentMode === 'circuit' || this.currentMode === 'city_race') {
       let rank = 1;
       for (const ai of this.traffic.vehicles) {
         if (ai.isRacer && (ai.finished || ai.totalProgress > this.playerTotalProgress)) {
@@ -807,6 +847,17 @@ export class RaceManager {
     if (this.state === 'finished') return;
     this.state = 'finished';
     this.checkpointArchGroup.visible = false;
+
+    // 0. Online Multiplayer 1v1 Finish -> report to server & wait for authoritative race_results
+    if (this.isMultiplayer) {
+      if (this.onBannerMessage) {
+        this.onBannerMessage('Finish line crossed!', 'green');
+      }
+      if (this.onMultiplayerLocalFinish) {
+        this.onMultiplayerLocalFinish(this.elapsedTime);
+      }
+      return;
+    }
 
     // 1. Handle Structured Campaign Mission Completion
     if (this.activeMission) {

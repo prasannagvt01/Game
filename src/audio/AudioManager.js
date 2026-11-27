@@ -32,10 +32,6 @@ export class AudioManager {
     this.ambientGain = null;
     this.ambientFilter = null;
 
-    this.sirenOsc = null;
-    this.sirenGain = null;
-    this.sirenPhase = 0;
-
     this.noiseBuffer = null;
     this.lastGear = 1;
     this.telemetryState = {
@@ -44,8 +40,7 @@ export class AudioManager {
       currentAccelGain: 0,
       currentBrakeGain: 0,
       currentSkidGain: 0,
-      currentAmbientGain: 0,
-      currentSirenGain: 0
+      currentAmbientGain: 0
     };
   }
 
@@ -202,45 +197,6 @@ export class AudioManager {
     this.ambientFilter.connect(this.ambientGain);
     this.ambientGain.connect(this.ambientBus);
     ambientSource.start();
-
-    // 4. USA Police Pursuit Wail/Yelp Siren Oscillator
-    this.sirenOsc = this.ctx.createOscillator();
-    this.sirenOsc.type = 'triangle';
-    this.sirenOsc.frequency.value = 720;
-
-    this.sirenGain = this.ctx.createGain();
-    this.sirenGain.gain.value = 0.0;
-
-    this.sirenOsc.connect(this.sirenGain);
-    this.sirenGain.connect(this.sfxBus);
-    this.sirenOsc.start();
-  }
-
-  /**
-   * Modulates the Police Pursuit wail siren pitch & distance-attenuated gain
-   */
-  updatePoliceSiren(dt, wantedLevel = 0, closestDist = Infinity, isPlaying = true) {
-    if (!isPlaying || wantedLevel <= 0 || closestDist > 135) {
-      this.telemetryState.currentSirenGain = 0;
-      if (this.ctx && this.sirenGain) {
-        this.sirenGain.gain.setTargetAtTime(0, this.ctx.currentTime, 0.08);
-      }
-      return;
-    }
-
-    this.sirenPhase += dt * (2.6 + wantedLevel * 0.45);
-    const wailMod = (Math.sin(this.sirenPhase) + 1) * 0.5;
-    const sirenFreq = 640 + wailMod * 540;
-    const distAtten = Math.max(0, 1 - closestDist / 135);
-    const targetGain = 0.02 + distAtten * 0.085;
-
-    this.telemetryState.currentSirenGain = targetGain;
-
-    if (this.ctx && this.sirenOsc && this.sirenGain) {
-      const now = this.ctx.currentTime;
-      this.sirenOsc.frequency.setTargetAtTime(sirenFreq, now, 0.03);
-      this.sirenGain.gain.setTargetAtTime(targetGain, now, 0.05);
-    }
   }
 
   applyAudioSettings(settings = {}) {
